@@ -34,13 +34,9 @@ router.post('/login', async (req, res) => {
 
 // POST /auth/register
 router.post('/register', async (req, res) => {
-  const { name, email, password, agency_id, register_key } = req.body
+  const { name, email, password, agency_id } = req.body
 
-  if (register_key !== process.env.REGISTER_SECRET) {
-    return res.status(403).json({ error: 'Chave de cadastro inválida' })
-  }
-
-  if (!name || !email || !password || !agency_id) {
+if (!name || !email || !password || !agency_id) {
     return res.status(400).json({ error: 'Todos os campos são obrigatórios' })
   }
 
