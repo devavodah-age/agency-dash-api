@@ -14,6 +14,7 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }))
 app.use('/auth', require('./routes/auth'))
 app.use('/clients', require('./routes/clients'))
 app.use('/meta', require('./routes/meta'))
+app.use('/settings', require('./routes/settings'))
 
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'Avodah Agency Dash API' }))
 
