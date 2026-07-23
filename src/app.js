@@ -13,8 +13,9 @@ app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }))
 
 app.use('/auth', require('./routes/auth'))
 app.use('/clients', require('./routes/clients'))
+app.use('/meta', require('./routes/meta'))
 
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'Avodah Agency Dash API' }))
 
 const PORT = process.env.PORT || 3000
-app.listen(PORT, () => console.log(`🚀 Avodah API rodando na porta ${PORT}`))
+app.listen(PORT, () => console.log(`Avodah API rodando na porta ${PORT}`))
