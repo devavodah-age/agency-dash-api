@@ -17,7 +17,8 @@ router.get('/', auth, async (req, res) => {
 
 // POST /clients
 router.post('/', auth, async (req, res) => {
-  const { name, email, meta_account_id } = req.body
+  const { name, email, meta_account_id: raw_id } = req.body
+  const meta_account_id = raw_id ? raw_id.replace(/^act_/, '') : ''
   if (!name) return res.status(400).json({ error: 'Nome é obrigatório' })
 
   try {
@@ -47,7 +48,8 @@ router.get('/:id', auth, async (req, res) => {
 
 // PUT /clients/:id
 router.put('/:id', auth, async (req, res) => {
-  const { name, email, meta_account_id } = req.body
+  const { name, email, meta_account_id: raw_id } = req.body
+  const meta_account_id = raw_id ? raw_id.replace(/^act_/, '') : ''
   try {
     const { rows } = await db.query(
       'UPDATE clients SET name=$1, email=$2, meta_account_id=$3, updated_at=NOW() WHERE id=$4 AND agency_id=$5 RETURNING *',
