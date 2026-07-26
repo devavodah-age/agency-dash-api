@@ -9,12 +9,14 @@ const app = express()
 app.use(helmet())
 app.use(cors({ origin: process.env.FRONTEND_URL || '*' }))
 app.use(express.json())
-app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 100 }))
+app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }))
 
 app.use('/auth', require('./routes/auth'))
 app.use('/clients', require('./routes/clients'))
 app.use('/meta', require('./routes/meta'))
 app.use('/settings', require('./routes/settings'))
+app.use('/client-auth', require('./routes/client-auth'))
+app.use('/client-portal', require('./routes/client-portal'))
 
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'Avodah Agency Dash API' }))
 
