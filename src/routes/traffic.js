@@ -285,4 +285,24 @@ Critérios: pausar se CPL>R$80 ou CTR<0.5% com gasto>R$20 sem leads; escalar se 
   } catch (err) { console.error(err); res.status(500).json({ error: 'Erro ao gerar otimização: ' + err.message }) }
 })
 
+
+// GET /traffic/ads/:id/preview?format=MOBILE_FEED_STANDARD
+router.get('/ads/:id/preview', auth, async (req, res) => {
+  const format = req.query.format || 'MOBILE_FEED_STANDARD'
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const url = `${GRAPH}/${req.params.id}/previews?ad_format=${format}&access_token=${token}`
+    const r = await fetch(url)
+    const data = await r.json()
+    if (data.error) return res.status(400).json({ error: data.error.message })
+    const preview = data.data?.[0]
+    if (!preview) return res.status(404).json({ error: 'Prévia não disponível' })
+    res.json({ body: preview.body })
+  } catch (err) {
+    console.error(err)
+    res.status(500).json({ error: 'Erro ao buscar prévia' })
+  }
+})
+
 module.exports = router
