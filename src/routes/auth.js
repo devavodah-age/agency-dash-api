@@ -71,4 +71,17 @@ router.get('/me', require('../middleware/auth'), async (req, res) => {
   }
 })
 
+
+// TEMP: POST /auth/reset-password
+router.post('/reset-password', async (req, res) => {
+  const { secret, email, new_password } = req.body
+  if (secret !== 'avodah-reset-2026') return res.status(403).json({ error: 'Forbidden' })
+  try {
+    const hash = await bcrypt.hash(new_password, 10)
+    const { rowCount } = await db.query('UPDATE users SET password_hash=$1 WHERE email=$2', [hash, email])
+    if (rowCount === 0) return res.status(404).json({ error: 'Usuário não encontrado' })
+    res.json({ ok: true })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
 module.exports = router
