@@ -7,6 +7,34 @@ const https = require('https')
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const GRAPH = 'https://graph.facebook.com/v19.0'
+
+const ACTION_LABELS = {
+  'purchase': 'Compras realizadas',
+  'omni_purchase': 'Compras realizadas',
+  'lead': 'Contatos interessados gerados',
+  'offsite_conversion.fb_pixel_lead': 'Contatos interessados gerados',
+  'onsite_conversion.lead_grouped': 'Contatos interessados gerados',
+  'landing_page_view': 'Visitas à página',
+  'instagram_profile_visit': 'Visitas ao perfil do Instagram',
+  'onsite_conversion.view_content': 'Visualizações de conteúdo',
+  'follow': 'Novos seguidores',
+  'page_engagement': 'Engajamentos',
+  'post_engagement': 'Engajamentos no post',
+  'link_click': 'Cliques no link',
+  'video_view': 'Visualizações de vídeo',
+  'comment': 'Comentários',
+}
+
+const ACTION_PRIORITY = [
+  'purchase', 'omni_purchase',
+  'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'landing_page_view',
+  'instagram_profile_visit', 'onsite_conversion.view_content',
+  'follow', 'link_click',
+  'page_engagement', 'post_engagement',
+  'video_view', 'comment',
+]
+
 const PERIOD_LABELS = {
   today: 'Hoje', last_7d: 'Últimos 7 dias',
   last_30d: 'Últimos 30 dias', this_month: 'Este mês'
@@ -36,26 +64,50 @@ async function generateReport(client, token, period) {
 
   if (!data.data || data.error) throw new Error(data.error?.message || 'Erro ao buscar campanhas')
 
-  let total_spend = 0, total_leads = 0, total_clicks = 0, total_impressions = 0
+  let total_spend = 0, total_clicks = 0, total_impressions = 0
+  const allActionTotals = {}
   const campaign_data = []
 
   data.data.forEach(c => {
     const i = c.insights?.data?.[0]
     if (!i) return
-    const leads = parseInt(i.actions?.find(a => a.action_type === 'lead')?.value || 0)
     const spend = parseFloat(i.spend || 0)
-    total_spend += spend; total_leads += leads
+    total_spend += spend
     total_clicks += parseInt(i.clicks || 0)
     total_impressions += parseInt(i.impressions || 0)
-    campaign_data.push({ id: c.id, name: c.name, status: c.effective_status, spend, leads,
-      cpl: leads > 0 ? spend/leads : null, ctr: parseFloat(i.ctr||0) })
+    const campaignActions = {}
+    if (Array.isArray(i.actions)) {
+      for (const a of i.actions) {
+        const v = parseInt(a.value || 0, 10)
+        campaignActions[a.action_type] = (campaignActions[a.action_type] || 0) + v
+        allActionTotals[a.action_type] = (allActionTotals[a.action_type] || 0) + v
+      }
+    }
+    campaign_data.push({ id: c.id, name: c.name, status: c.effective_status, spend, actions: campaignActions })
   })
 
-  const top_campaigns = campaign_data.sort((a,b) => b.spend - a.spend).slice(0,3)
-  const avg_cpl = total_leads > 0 ? total_spend / total_leads : null
-  const avg_ctr = campaign_data.length > 0
-    ? campaign_data.reduce((s,c) => s + (c.ctr||0), 0) / campaign_data.length : 0
-  const metrics = { total_spend, total_leads, total_clicks, total_impressions, avg_cpl, avg_ctr, top_campaigns }
+  let primary_type = null
+  for (const t of ACTION_PRIORITY) {
+    if ((allActionTotals[t] || 0) > 0) { primary_type = t; break }
+  }
+
+  const total_results = primary_type ? (allActionTotals[primary_type] || 0) : 0
+  const result_label = primary_type ? (ACTION_LABELS[primary_type] || primary_type) : 'Resultados'
+  const cost_per_result = total_results > 0 ? total_spend / total_results : null
+  const avg_ctr = total_impressions > 0 ? (total_clicks / total_impressions) * 100 : 0
+
+  const top_campaigns = campaign_data.sort((a,b) => b.spend - a.spend).slice(0,3).map(c => ({
+    id: c.id, name: c.name, status: c.status, spend: c.spend,
+    results: primary_type ? (c.actions[primary_type] || 0) : 0,
+    cost_per_result: primary_type && c.actions[primary_type] > 0
+      ? parseFloat((c.spend / c.actions[primary_type]).toFixed(2)) : null,
+  }))
+
+  const metrics = {
+    total_spend, total_results, result_label, cost_per_result,
+    total_clicks, total_impressions, avg_ctr, top_campaigns,
+    total_leads: total_results, avg_cpl: cost_per_result,
+  }
 
   const prompt = `Você é um consultor de marketing que ajuda donos de negócio a entender os resultados das suas campanhas no Meta (Facebook e Instagram). Escreva de forma simples, direta e amigável — como se estivesse explicando pessoalmente para alguém que não é especialista em marketing digital.
 
@@ -64,23 +116,24 @@ Período: ${PERIOD_LABELS[date_preset] || date_preset}
 
 Resultados do período:
 - Valor investido nos anúncios: ${fmtBRL(total_spend)}
-- Contatos interessados gerados (leads): ${total_leads}
-- Custo médio por contato: ${avg_cpl ? fmtBRL(avg_cpl) : '—'}
+- Tipo de resultado principal desta campanha: ${result_label}
+- Total de resultados gerados: ${total_results}
+- Custo médio por resultado: ${cost_per_result ? fmtBRL(cost_per_result) : '—'}
 - Pessoas que clicaram nos anúncios: ${total_clicks}
 - Vezes que os anúncios foram exibidos: ${total_impressions}
-- Taxa de cliques (a cada 100 exibições, quantas pessoas clicaram): ${avg_ctr.toFixed(2)}%
-- Campanhas com mais investimento: ${JSON.stringify(top_campaigns.map(c => ({ nome: c.name, gasto: fmtBRL(c.spend), contatos: c.leads, custo_por_contato: c.cpl ? fmtBRL(c.cpl) : '—' })))}
+- Taxa de cliques: ${avg_ctr.toFixed(2)}% (a cada 100 exibições, ${avg_ctr.toFixed(1)} pessoas clicaram)
+- Campanhas com mais investimento: ${JSON.stringify(top_campaigns.map(c => ({ nome: c.name, gasto: fmtBRL(c.spend), resultados: c.results, custo_por_resultado: c.cost_per_result ? fmtBRL(c.cost_per_result) : '—' })))}
 
 Regras obrigatórias:
 - Não use siglas como CTR, CPM, CPC, ROAS sem explicar com palavras simples
-- Quando mencionar "leads", chame de "contatos interessados" ou "pessoas que demonstraram interesse"
+- Chame os resultados pelo tipo correto: "${result_label}" — não use "leads" se o resultado for visitas, seguidores, etc.
 - Use o valor investido para contextualizar o custo-benefício
 - Seja encorajador e honesto ao mesmo tempo
 - Escreva em português brasileiro, tom amigável e profissional
 
 Retorne APENAS um JSON válido (sem markdown) com:
 {
-  "manchete": "uma frase curta e impactante com o principal resultado (ex: '47 novos contatos gerados em 7 dias')",
+  "manchete": "uma frase curta e impactante com o principal resultado (ex: '21 visitas ao perfil com apenas R$ 7,41 investidos')",
   "resumo_executivo": "2-3 frases explicando o desempenho de forma que qualquer cliente entenda, sem jargão técnico",
   "destaques": ["ponto positivo 1 em linguagem simples", "ponto positivo 2", "ponto positivo 3"],
   "recomendacoes": ["sugestão prática e clara 1", "sugestão prática e clara 2", "sugestão prática e clara 3"],
