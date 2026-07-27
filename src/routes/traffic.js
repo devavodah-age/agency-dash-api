@@ -284,6 +284,19 @@ Critérios: pausar se CPL>R$80 ou CTR<0.5% com gasto>R$20 sem leads; escalar se 
 })
 
 
+// GET /traffic/ads/:id/thumbnail
+router.get('/ads/:id/thumbnail', auth, async (req, res) => {
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const r = await fetch(`${GRAPH}/${req.params.id}?fields=creative{thumbnail_url}&access_token=${token}`)
+    const data = await r.json()
+    res.json({ thumbnail_url: data.creative?.thumbnail_url || null })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // GET /traffic/ads/:id/preview?format=MOBILE_FEED_STANDARD
 router.get('/ads/:id/preview', auth, async (req, res) => {
   const format = req.query.format || 'MOBILE_FEED_STANDARD'
