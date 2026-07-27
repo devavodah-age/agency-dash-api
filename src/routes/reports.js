@@ -60,6 +60,8 @@ const ACTION_LABELS = {
   'landing_page_view': 'Visitas à página',
   'instagram_profile_visit': 'Visitas ao perfil do Instagram',
   'onsite_conversion.view_content': 'Visualizações de conteúdo',
+  'onsite_conversion.messaging_conversation_started_7d': 'Conversas iniciadas',
+  'messaging_conversation_started': 'Conversas iniciadas',
   'follow': 'Novos seguidores',
   'omni_post_engagement': 'Engajamentos',
   'page_engagement': 'Engajamentos',
@@ -74,6 +76,8 @@ const ACTION_LABELS = {
 const ACTION_PRIORITY = [
   'purchase', 'omni_purchase',
   'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'onsite_conversion.messaging_conversation_started_7d',
+  'messaging_conversation_started',
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
