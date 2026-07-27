@@ -140,35 +140,34 @@ async function generateReport(client, token, period) {
     total_leads: total_results, avg_cpl: cost_per_result,
   }
 
-  const prompt = `Você é um consultor de marketing que ajuda donos de negócio a entender os resultados das suas campanhas no Meta (Facebook e Instagram). Escreva de forma simples, direta e amigável — como se estivesse explicando pessoalmente para alguém que não é especialista em marketing digital.
+  const prompt = `Você é um gestor de tráfego da Agência Avodah, apresentando os resultados das campanhas ao seu cliente ${client.name}. Escreva sempre na voz da agência falando COM o cliente — use "geramos", "conseguimos", "a campanha entregou", "trouxemos X resultados para você". Nunca escreva como se fosse o cliente falando consigo mesmo.
 
 Cliente: ${client.name}
 Período: ${PERIOD_LABELS[date_preset] || date_preset}
 
-Resultados do período:
-- Valor investido nos anúncios: ${fmtBRL(total_spend)}
-- Tipo de resultado principal desta campanha: ${result_label}
+Resultados que geramos no período:
+- Valor investido: ${fmtBRL(total_spend)}
+- Tipo de resultado principal: ${result_label}
 - Total de resultados gerados: ${total_results}
 - Custo médio por resultado: ${cost_per_result ? fmtBRL(cost_per_result) : '—'}
-- Pessoas que clicaram nos anúncios: ${total_clicks}
-- Vezes que os anúncios foram exibidos: ${total_impressions}
-- Taxa de cliques: ${avg_ctr.toFixed(2)}% (a cada 100 exibições, ${avg_ctr.toFixed(1)} pessoas clicaram)
-- Campanhas com mais investimento: ${JSON.stringify(top_campaigns.map(c => ({ nome: c.name, gasto: fmtBRL(c.spend), resultados: c.results, custo_por_resultado: c.cost_per_result ? fmtBRL(c.cost_per_result) : '—' })))}
+- Cliques nos anúncios: ${total_clicks}
+- Exibições dos anúncios: ${total_impressions}
+- Campanhas: ${JSON.stringify(top_campaigns.map(c => ({ nome: c.name, gasto: fmtBRL(c.spend), resultados: c.results, custo_por_resultado: c.cost_per_result ? fmtBRL(c.cost_per_result) : '—' })))}
 
-Regras obrigatórias:
-- Não use siglas como CTR, CPM, CPC, ROAS sem explicar com palavras simples
-- Chame os resultados pelo tipo correto: "${result_label}" — não use "leads" se o resultado for visitas, seguidores, etc.
-- Use o valor investido para contextualizar o custo-benefício
-- Seja encorajador e honesto ao mesmo tempo
-- Escreva em português brasileiro, tom amigável e profissional
+Regras:
+- Tom: agência reportando ao cliente (ex: "geramos X conversas para vocês", "a campanha entregou", "nossa estratégia trouxe")
+- Nunca use "seus anúncios", "você fez", "sua campanha" — use "a campanha que gerenciamos", "os anúncios que criamos"
+- Sem siglas técnicas (CTR, CPM, CPC) sem explicação
+- Use o tipo de resultado correto: "${result_label}"
+- Português brasileiro, tom profissional e encorajador
 
 Retorne APENAS um JSON válido (sem markdown) com:
 {
-  "manchete": "uma frase curta e impactante com o principal resultado (ex: '21 visitas ao perfil com apenas R$ 7,41 investidos')",
-  "resumo_executivo": "2-3 frases explicando o desempenho de forma que qualquer cliente entenda, sem jargão técnico",
-  "destaques": ["ponto positivo 1 em linguagem simples", "ponto positivo 2", "ponto positivo 3"],
-  "recomendacoes": ["sugestão prática e clara 1", "sugestão prática e clara 2", "sugestão prática e clara 3"],
-  "conclusao": "uma frase de fechamento encorajadora"
+  "manchete": "frase curta e impactante da agência para o cliente (ex: 'Geramos 56 conversas para a Kaique Motos em 7 dias')",
+  "resumo_executivo": "2-3 frases da agência reportando o desempenho ao cliente, sem jargão",
+  "destaques": ["ponto positivo 1 escrito pela agência para o cliente", "ponto 2", "ponto 3"],
+  "recomendacoes": ["próximo passo que a agência sugere ao cliente 1", "sugestão 2", "sugestão 3"],
+  "conclusao": "frase de encerramento da agência para o cliente, encorajadora"
 }`
 
   const resp = await anthropic.messages.create({
