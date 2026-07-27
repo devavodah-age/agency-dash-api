@@ -5,6 +5,8 @@ const db = require('../config/db')
 const ACTION_PRIORITY = [
   'purchase', 'omni_purchase',
   'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'onsite_conversion.messaging_conversation_started_7d',
+  'messaging_conversation_started',
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
