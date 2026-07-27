@@ -2,6 +2,28 @@ const router = require('express').Router()
 const auth = require('../middleware/auth')
 const db = require('../config/db')
 
+const ACTION_PRIORITY = [
+  'purchase', 'omni_purchase',
+  'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'landing_page_view',
+  'instagram_profile_visit', 'onsite_conversion.view_content',
+  'follow', 'link_click',
+  'page_engagement', 'post_engagement',
+  'video_view', 'comment',
+]
+
+function getPrimaryResult(actions, reach) {
+  if (Array.isArray(actions) && actions.length) {
+    const map = {}
+    for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
+    for (const t of ACTION_PRIORITY) {
+      if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
+    }
+  }
+  if (reach && parseInt(reach) > 0) return { results: parseInt(reach), result_type: 'reach' }
+  return { results: 0, result_type: null }
+}
+
 // GET /meta/overview?period=last_7d|last_30d|today
 router.get('/overview', auth, async (req, res) => {
   const allowed = ['today', 'last_7d', 'last_30d', 'this_month']
@@ -27,7 +49,7 @@ router.get('/overview', auth, async (req, res) => {
       [req.user.agency_id]
     )
 
-    const fields = 'spend,clicks,impressions,actions'
+    const fields = 'spend,clicks,impressions,reach,actions'
     const results = await Promise.allSettled(
       clients.map(async (client) => {
         const url = `https://graph.facebook.com/v19.0/act_${client.meta_account_id}/insights?fields=${fields}&date_preset=${date_preset}&access_token=${ag.meta_access_token}`
@@ -35,17 +57,16 @@ router.get('/overview', auth, async (req, res) => {
         const data = await resp.json()
         if (data.error || !data.data || !data.data[0]) return null
         const ins = data.data[0]
-        const leadsAction = ins.actions && ins.actions.find(a => a.action_type === 'lead')
-        const leads = leadsAction ? parseInt(leadsAction.value) : 0
+        const { results: res_count, result_type } = getPrimaryResult(ins.actions, ins.reach)
         const spend = parseFloat(ins.spend || 0)
         return {
-          id: client.id,
-          name: client.name,
-          spend,
+          id: client.id, name: client.name, spend,
           clicks: parseInt(ins.clicks || 0),
           impressions: parseInt(ins.impressions || 0),
-          leads,
-          cpl: leads > 0 ? parseFloat((spend / leads).toFixed(2)) : null,
+          results: res_count, result_type,
+          cost_per_result: res_count > 0 ? parseFloat((spend / res_count).toFixed(2)) : null,
+          leads: res_count,
+          cpl: res_count > 0 ? parseFloat((spend / res_count).toFixed(2)) : null,
         }
       })
     )
@@ -55,16 +76,16 @@ router.get('/overview', auth, async (req, res) => {
       .map(r => r.value)
 
     const totals = clientData.reduce(
-      (acc, c) => ({ spend: acc.spend + c.spend, clicks: acc.clicks + c.clicks, leads: acc.leads + c.leads }),
-      { spend: 0, clicks: 0, leads: 0 }
+      (acc, c) => ({ spend: acc.spend + c.spend, clicks: acc.clicks + c.clicks, results: acc.results + c.results }),
+      { spend: 0, clicks: 0, results: 0 }
     )
-    const avgCpl = totals.leads > 0 ? parseFloat((totals.spend / totals.leads).toFixed(2)) : null
+    const avgCost = totals.results > 0 ? parseFloat((totals.spend / totals.results).toFixed(2)) : null
 
     res.json({
       period: date_preset,
       total_clients: parseInt(countRows[0].total),
       active_clients: clientData.length,
-      totals: { ...totals, cpl: avgCpl },
+      totals: { ...totals, cpl: avgCost, cost_per_result: avgCost, leads: totals.results },
       clients: clientData,
     })
   } catch (err) {
@@ -145,3 +166,4 @@ router.get('/test/:client_id', auth, async (req, res) => {
 })
 
 module.exports = router
+
