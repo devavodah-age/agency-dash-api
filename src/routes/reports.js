@@ -61,11 +61,14 @@ const ACTION_LABELS = {
   'instagram_profile_visit': 'Visitas ao perfil do Instagram',
   'onsite_conversion.view_content': 'Visualizações de conteúdo',
   'follow': 'Novos seguidores',
+  'omni_post_engagement': 'Engajamentos',
   'page_engagement': 'Engajamentos',
   'post_engagement': 'Engajamentos no post',
   'link_click': 'Cliques no link',
   'video_view': 'Visualizações de vídeo',
   'comment': 'Comentários',
+  'like': 'Curtidas',
+  'reach': 'Alcance',
 }
 
 const ACTION_PRIORITY = [
@@ -74,9 +77,11 @@ const ACTION_PRIORITY = [
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
-  'page_engagement', 'post_engagement',
-  'video_view', 'comment',
+  'omni_post_engagement', 'page_engagement', 'post_engagement',
+  'video_view', 'comment', 'like',
 ]
+
+const SKIP_TYPES = new Set(['omni_initiated_checkout', 'omni_add_to_cart'])
 
 // Helper: aggregate Meta campaign data
 function aggregateCampaigns(campaigns) {
@@ -110,10 +115,25 @@ function aggregateCampaigns(campaigns) {
     })
   }
 
-  // Detect primary result type by priority
+  // Detect primary result: priority list, then catch-all highest value action
   let primary_type = null
+  const filteredTotals = Object.fromEntries(
+    Object.entries(allActionTotals).filter(([t]) => !SKIP_TYPES.has(t))
+  )
   for (const t of ACTION_PRIORITY) {
-    if ((allActionTotals[t] || 0) > 0) { primary_type = t; break }
+    if ((filteredTotals[t] || 0) > 0) { primary_type = t; break }
+  }
+  if (!primary_type) {
+    let best = null
+    for (const [t, v] of Object.entries(filteredTotals)) {
+      if (v > 0 && (!best || v > best.v)) best = { t, v }
+    }
+    if (best) primary_type = best.t
+  }
+  // Fallback: reach for awareness campaigns
+  if (!primary_type) {
+    const totalReach = campaigns.reduce((s, c) => s + parseInt(c.insights?.data?.[0]?.reach || 0), 0)
+    if (totalReach > 0) { primary_type = 'reach'; allActionTotals['reach'] = totalReach }
   }
 
   const total_results = primary_type ? (allActionTotals[primary_type] || 0) : 0
@@ -220,7 +240,7 @@ router.post('/generate', auth, async (req, res) => {
     // 3. Call Meta Graph API
     const metaUrl =
       `https://graph.facebook.com/v19.0/act_${client.meta_account_id}/campaigns` +
-      `?fields=id,name,status,effective_status,daily_budget,insights.date_preset(${period}){spend,clicks,impressions,cpc,ctr,actions}` +
+      `?fields=id,name,status,effective_status,daily_budget,insights.date_preset(${period}){spend,clicks,impressions,cpc,ctr,reach,actions}` +
       `&limit=50` +
       `&access_token=${meta_access_token}`
 
