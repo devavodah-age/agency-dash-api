@@ -57,25 +57,34 @@ async function generateReport(client, token, period) {
     ? campaign_data.reduce((s,c) => s + (c.ctr||0), 0) / campaign_data.length : 0
   const metrics = { total_spend, total_leads, total_clicks, total_impressions, avg_cpl, avg_ctr, top_campaigns }
 
-  const prompt = `Você é analista de marketing digital de uma agência brasileira. Analise os dados de performance e gere um relatório profissional.
+  const prompt = `Você é um consultor de marketing que ajuda donos de negócio a entender os resultados das suas campanhas no Meta (Facebook e Instagram). Escreva de forma simples, direta e amigável — como se estivesse explicando pessoalmente para alguém que não é especialista em marketing digital.
 
 Cliente: ${client.name}
 Período: ${PERIOD_LABELS[date_preset] || date_preset}
-Dados:
-- Investimento total: ${fmtBRL(total_spend)}
-- Leads gerados: ${total_leads}
-- CPL médio: ${avg_cpl ? fmtBRL(avg_cpl) : '—'}
-- Cliques: ${total_clicks}
-- Impressões: ${total_impressions}
-- CTR médio: ${avg_ctr.toFixed(2)}%
-- Top campanhas: ${JSON.stringify(top_campaigns)}
+
+Resultados do período:
+- Valor investido nos anúncios: ${fmtBRL(total_spend)}
+- Contatos interessados gerados (leads): ${total_leads}
+- Custo médio por contato: ${avg_cpl ? fmtBRL(avg_cpl) : '—'}
+- Pessoas que clicaram nos anúncios: ${total_clicks}
+- Vezes que os anúncios foram exibidos: ${total_impressions}
+- Taxa de cliques (a cada 100 exibições, quantas pessoas clicaram): ${avg_ctr.toFixed(2)}%
+- Campanhas com mais investimento: ${JSON.stringify(top_campaigns.map(c => ({ nome: c.name, gasto: fmtBRL(c.spend), contatos: c.leads, custo_por_contato: c.cpl ? fmtBRL(c.cpl) : '—' })))}
+
+Regras obrigatórias:
+- Não use siglas como CTR, CPM, CPC, ROAS sem explicar com palavras simples
+- Quando mencionar "leads", chame de "contatos interessados" ou "pessoas que demonstraram interesse"
+- Use o valor investido para contextualizar o custo-benefício
+- Seja encorajador e honesto ao mesmo tempo
+- Escreva em português brasileiro, tom amigável e profissional
 
 Retorne APENAS um JSON válido (sem markdown) com:
 {
-  "resumo_executivo": "2-3 frases resumindo o desempenho",
-  "destaques": ["ponto positivo 1", "ponto positivo 2", "ponto positivo 3"],
-  "recomendacoes": ["ação recomendada 1", "ação recomendada 2", "ação recomendada 3"],
-  "conclusao": "uma frase de fechamento motivadora"
+  "manchete": "uma frase curta e impactante com o principal resultado (ex: '47 novos contatos gerados em 7 dias')",
+  "resumo_executivo": "2-3 frases explicando o desempenho de forma que qualquer cliente entenda, sem jargão técnico",
+  "destaques": ["ponto positivo 1 em linguagem simples", "ponto positivo 2", "ponto positivo 3"],
+  "recomendacoes": ["sugestão prática e clara 1", "sugestão prática e clara 2", "sugestão prática e clara 3"],
+  "conclusao": "uma frase de fechamento encorajadora"
 }`
 
   const resp = await anthropic.messages.create({
