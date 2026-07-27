@@ -15,13 +15,15 @@ const ACTION_PRIORITY = [
   'video_view', 'comment',
 ]
 
-function getPrimaryResult(actions) {
-  if (!Array.isArray(actions) || !actions.length) return { results: 0, result_type: null }
-  const map = {}
-  for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
-  for (const t of ACTION_PRIORITY) {
-    if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
+function getPrimaryResult(actions, reach) {
+  if (Array.isArray(actions) && actions.length) {
+    const map = {}
+    for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
+    for (const t of ACTION_PRIORITY) {
+      if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
+    }
   }
+  if (reach && parseInt(reach) > 0) return { results: parseInt(reach), result_type: 'reach' }
   return { results: 0, result_type: null }
 }
 
@@ -63,13 +65,13 @@ router.get('/campaigns', auth, async (req, res) => {
     const all = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,daily_budget,lifetime_budget,objective'
-      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const ins = 'spend,clicks,impressions,cpc,ctr,reach,actions'
       const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=50&access_token=${token}`
       const r = await fetch(url); const data = await r.json()
       if (!data.data) return
       data.data.forEach(c => {
         const i = c.insights?.data?.[0]
-        const { results, result_type } = getPrimaryResult(i?.actions)
+        const { results, result_type } = getPrimaryResult(i?.actions, i?.reach)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: c.id, name: c.name, status: c.status, effective_status: c.effective_status,
@@ -101,13 +103,13 @@ router.get('/adsets', auth, async (req, res) => {
     const all = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,daily_budget,lifetime_budget,campaign_id,campaign{name},optimization_goal,billing_event'
-      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const ins = 'spend,clicks,impressions,cpc,ctr,reach,actions'
       const url = `${GRAPH}/act_${client.meta_account_id}/adsets?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=100&access_token=${token}`
       const r = await fetch(url); const data = await r.json()
       if (!data.data) return
       data.data.forEach(s => {
         const i = s.insights?.data?.[0]
-        const { results, result_type } = getPrimaryResult(i?.actions)
+        const { results, result_type } = getPrimaryResult(i?.actions, i?.reach)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: s.id, name: s.name, status: s.status, effective_status: s.effective_status,
@@ -141,13 +143,13 @@ router.get('/ads', auth, async (req, res) => {
     const all = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,adset_id,adset{name},campaign_id,campaign{name}'
-      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const ins = 'spend,clicks,impressions,cpc,ctr,reach,actions'
       const url = `${GRAPH}/act_${client.meta_account_id}/ads?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=100&access_token=${token}`
       const r = await fetch(url); const data = await r.json()
       if (!data.data) return
       data.data.forEach(ad => {
         const i = ad.insights?.data?.[0]
-        const { results, result_type } = getPrimaryResult(i?.actions)
+        const { results, result_type } = getPrimaryResult(i?.actions, i?.reach)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: ad.id, name: ad.name, status: ad.status, effective_status: ad.effective_status,
@@ -268,7 +270,7 @@ router.post('/optimize', auth, async (req, res) => {
     const campaigns = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,daily_budget,objective'
-      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const ins = 'spend,clicks,impressions,cpc,ctr,reach,actions'
       const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=50&access_token=${token}`
       const r = await fetch(url); const data = await r.json()
       if (!data.data) return
