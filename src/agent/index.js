@@ -18,11 +18,14 @@ const ACTION_LABELS = {
   'instagram_profile_visit': 'Visitas ao perfil do Instagram',
   'onsite_conversion.view_content': 'Visualizações de conteúdo',
   'follow': 'Novos seguidores',
+  'omni_post_engagement': 'Engajamentos',
   'page_engagement': 'Engajamentos',
   'post_engagement': 'Engajamentos no post',
   'link_click': 'Cliques no link',
   'video_view': 'Visualizações de vídeo',
   'comment': 'Comentários',
+  'like': 'Curtidas',
+  'reach': 'Alcance',
 }
 
 const ACTION_PRIORITY = [
@@ -31,9 +34,27 @@ const ACTION_PRIORITY = [
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
-  'page_engagement', 'post_engagement',
-  'video_view', 'comment',
+  'omni_post_engagement', 'page_engagement', 'post_engagement',
+  'video_view', 'comment', 'like',
 ]
+
+const SKIP_TYPES = new Set(['omni_initiated_checkout', 'omni_add_to_cart'])
+
+function getPrimaryResultFromActions(actions) {
+  if (!Array.isArray(actions) || !actions.length) return null
+  const map = {}
+  for (const a of actions) {
+    if (!SKIP_TYPES.has(a.action_type)) map[a.action_type] = parseInt(a.value || 0, 10)
+  }
+  for (const t of ACTION_PRIORITY) {
+    if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
+  }
+  let best = null
+  for (const [type, val] of Object.entries(map)) {
+    if (val > 0 && (!best || val > best.val)) best = { type, val }
+  }
+  return best ? { results: best.val, result_type: best.type } : null
+}
 
 const PERIOD_LABELS = {
   today: 'Hoje', last_7d: 'Últimos 7 dias',
@@ -57,7 +78,7 @@ function fmtBRL(v) {
 
 async function generateReport(client, token, period) {
   const date_preset = period || 'last_7d'
-  const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+  const ins = 'spend,clicks,impressions,cpc,ctr,reach,actions'
   const fields = `id,name,status,effective_status,daily_budget,insights.date_preset(${date_preset}){${ins}}`
   const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields}&limit=50&access_token=${token}`
   const data = await fetchJson(url)
@@ -86,20 +107,26 @@ async function generateReport(client, token, period) {
     campaign_data.push({ id: c.id, name: c.name, status: c.effective_status, spend, actions: campaignActions })
   })
 
-  let primary_type = null
-  for (const t of ACTION_PRIORITY) {
-    if ((allActionTotals[t] || 0) > 0) { primary_type = t; break }
+  // Detect primary result using priority list then catch-all
+  const primaryFromActions = getPrimaryResultFromActions(
+    Object.entries(allActionTotals).map(([action_type, value]) => ({ action_type, value: String(value) }))
+  )
+  let primary_type = primaryFromActions?.result_type || null
+  let total_results = primaryFromActions?.results || 0
+  // Fallback: reach (for awareness campaigns)
+  if (!primary_type && data.data.some(c => c.insights?.data?.[0]?.reach)) {
+    total_results = data.data.reduce((s, c) => s + parseInt(c.insights?.data?.[0]?.reach || 0), 0)
+    if (total_results > 0) primary_type = 'reach'
   }
 
-  const total_results = primary_type ? (allActionTotals[primary_type] || 0) : 0
   const result_label = primary_type ? (ACTION_LABELS[primary_type] || primary_type) : 'Resultados'
   const cost_per_result = total_results > 0 ? total_spend / total_results : null
   const avg_ctr = total_impressions > 0 ? (total_clicks / total_impressions) * 100 : 0
 
   const top_campaigns = campaign_data.sort((a,b) => b.spend - a.spend).slice(0,3).map(c => ({
     id: c.id, name: c.name, status: c.status, spend: c.spend,
-    results: primary_type ? (c.actions[primary_type] || 0) : 0,
-    cost_per_result: primary_type && c.actions[primary_type] > 0
+    results: primary_type && primary_type !== 'reach' ? (c.actions[primary_type] || 0) : 0,
+    cost_per_result: primary_type && (c.actions[primary_type] || 0) > 0
       ? parseFloat((c.spend / c.actions[primary_type]).toFixed(2)) : null,
   }))
 
