@@ -8,17 +8,28 @@ const ACTION_PRIORITY = [
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
-  'page_engagement', 'post_engagement',
-  'video_view', 'comment',
+  'omni_post_engagement', 'page_engagement', 'post_engagement',
+  'video_view', 'comment', 'like',
 ]
+
+const SKIP_TYPES = new Set([
+  'omni_initiated_checkout', 'omni_add_to_cart',
+])
 
 function getPrimaryResult(actions, reach) {
   if (Array.isArray(actions) && actions.length) {
     const map = {}
-    for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
+    for (const a of actions) {
+      if (!SKIP_TYPES.has(a.action_type)) map[a.action_type] = parseInt(a.value || 0, 10)
+    }
     for (const t of ACTION_PRIORITY) {
       if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
     }
+    let best = null
+    for (const [type, val] of Object.entries(map)) {
+      if (val > 0 && (!best || val > best.val)) best = { type, val }
+    }
+    if (best) return { results: best.val, result_type: best.type }
   }
   if (reach && parseInt(reach) > 0) return { results: parseInt(reach), result_type: 'reach' }
   return { results: 0, result_type: null }
