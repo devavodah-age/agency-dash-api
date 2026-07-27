@@ -224,18 +224,21 @@ router.post('/generate', auth, async (req, res) => {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       system:
-        'Você é um analista de marketing digital de uma agência brasileira. ' +
+        'Você é um consultor de marketing que ajuda donos de negócio a entender os resultados das suas campanhas. ' +
+        'Escreva de forma simples e amigável, sem jargão técnico. ' +
         'Sempre responda com JSON válido, sem markdown, sem texto adicional.',
       messages: [
         {
           role: 'user',
           content:
-            `Com base nos dados abaixo, gere um relatório de performance profissional em português. ` +
+            `Com base nos dados abaixo, gere um relatório em português para o cliente, escrito de forma simples para que qualquer pessoa entenda — sem termos técnicos como CTR, CPM, CPC ou ROAS sem explicação. ` +
+            `Quando mencionar "leads", chame de "contatos interessados". Use tom amigável e encorajador. ` +
             `Responda SOMENTE com um JSON válido contendo exatamente estas chaves: ` +
-            `"resumo_executivo" (string com 2-3 frases), ` +
-            `"destaques" (array com 3 strings em formato bullet point), ` +
-            `"recomendacoes" (array com 3 strings em formato bullet point), ` +
-            `"conclusao" (string com 1 frase). ` +
+            `"manchete" (string: uma frase curta com o principal resultado, ex: "47 novos contatos em 7 dias"), ` +
+            `"resumo_executivo" (string: 2-3 frases explicando o desempenho sem jargão), ` +
+            `"destaques" (array com 3 strings em linguagem simples e positiva), ` +
+            `"recomendacoes" (array com 3 sugestões práticas e claras), ` +
+            `"conclusao" (string: 1 frase encorajadora de fechamento). ` +
             `\n\nDados:\n${claudePrompt}`
         }
       ]
@@ -335,3 +338,4 @@ router.delete('/:id', auth, async (req, res) => {
 })
 
 module.exports = router
+
