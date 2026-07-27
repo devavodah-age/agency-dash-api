@@ -286,22 +286,26 @@ router.post('/generate', auth, async (req, res) => {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 1024,
       system:
-        'Você é um consultor de marketing que ajuda donos de negócio a entender os resultados das suas campanhas. ' +
-        'Escreva de forma simples e amigável, sem jargão técnico. ' +
+        'Você é um gestor de tráfego de uma agência de marketing digital brasileira, apresentando resultados ao seu cliente. ' +
+        'Escreva sempre na voz da agência falando COM o cliente — use "geramos", "conseguimos", "a campanha entregou", "trouxemos". ' +
+        'Nunca escreva como se fosse o próprio cliente falando ("você fez", "seus anúncios foram vistos por você"). ' +
+        'Linguagem simples, profissional e encorajadora. Sem jargão técnico. ' +
         'Sempre responda com JSON válido, sem markdown, sem texto adicional.',
       messages: [
         {
           role: 'user',
           content:
-            `Com base nos dados abaixo, gere um relatório em português para o cliente, escrito de forma simples para que qualquer pessoa entenda — sem termos técnicos como CTR, CPM, CPC ou ROAS sem explicação. ` +
-            `Quando mencionar "leads", chame de "contatos interessados". Use tom amigável e encorajador. ` +
-            `Responda SOMENTE com um JSON válido contendo exatamente estas chaves: ` +
-            `"manchete" (string: uma frase curta com o principal resultado, ex: "47 novos contatos em 7 dias"), ` +
-            `"resumo_executivo" (string: 2-3 frases explicando o desempenho sem jargão), ` +
-            `"destaques" (array com 3 strings em linguagem simples e positiva), ` +
-            `"recomendacoes" (array com 3 sugestões práticas e claras), ` +
-            `"conclusao" (string: 1 frase encorajadora de fechamento). ` +
-            `\n\nDados:\n${claudePrompt}`
+            `Prepare um relatório de resultados para apresentar ao cliente ${client.name}. ` +
+            `Escreva como a agência Avodah reportando os resultados — use "geramos X conversas para vocês", "a campanha entregou", "nossa estratégia trouxe". ` +
+            `Nunca use "você fez" ou "seus anúncios" — sempre fale como agência apresentando ao cliente. ` +
+            `Sem termos técnicos como CTR, CPM, CPC. Linguagem clara e acessível para o dono do negócio. ` +
+            `Responda SOMENTE com JSON válido com estas chaves: ` +
+            `"manchete" (frase curta e impactante com o principal resultado, ex: "Geramos 56 conversas para a Kaique Motos em 7 dias"), ` +
+            `"resumo_executivo" (2-3 frases da agência reportando o desempenho ao cliente, sem jargão), ` +
+            `"destaques" (array com 3 pontos positivos escritos pela agência para o cliente), ` +
+            `"recomendacoes" (array com 3 próximos passos que a agência sugere ao cliente), ` +
+            `"conclusao" (1 frase de encerramento da agência para o cliente, encorajadora). ` +
+            `\n\nDados do período:\n${claudePrompt}`
         }
       ]
     })
