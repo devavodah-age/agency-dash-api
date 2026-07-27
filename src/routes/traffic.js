@@ -5,6 +5,26 @@ const db   = require('../config/db')
 const GRAPH = 'https://graph.facebook.com/v19.0'
 const ALLOWED_PERIODS = ['today','last_7d','last_30d','this_month']
 
+const ACTION_PRIORITY = [
+  'purchase', 'omni_purchase',
+  'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'landing_page_view',
+  'instagram_profile_visit', 'onsite_conversion.view_content',
+  'follow', 'link_click',
+  'page_engagement', 'post_engagement',
+  'video_view', 'comment',
+]
+
+function getPrimaryResult(actions) {
+  if (!Array.isArray(actions) || !actions.length) return { results: 0, result_type: null }
+  const map = {}
+  for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
+  for (const t of ACTION_PRIORITY) {
+    if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
+  }
+  return { results: 0, result_type: null }
+}
+
 async function getAgencyToken(agency_id) {
   const { rows } = await db.query('SELECT meta_access_token FROM agencies WHERE id=$1', [agency_id])
   return rows[0]?.meta_access_token || null
@@ -49,15 +69,17 @@ router.get('/campaigns', auth, async (req, res) => {
       if (!data.data) return
       data.data.forEach(c => {
         const i = c.insights?.data?.[0]
-        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const { results, result_type } = getPrimaryResult(i?.actions)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: c.id, name: c.name, status: c.status, effective_status: c.effective_status,
           daily_budget: c.daily_budget ? parseInt(c.daily_budget) / 100 : null,
           objective: c.objective, client_id: client.id, client_name: client.name,
           meta_account_id: client.meta_account_id,
-          spend, clicks: parseInt(i?.clicks || 0), leads,
-          cpl: leads > 0 ? spend / leads : null,
+          spend, clicks: parseInt(i?.clicks || 0),
+          results, result_type,
+          cost_per_result: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
+          leads: results, cpl: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
           ctr: i ? parseFloat(i.ctr || 0) : null,
           cpc: i ? parseFloat(i.cpc || 0) : null,
           impressions: i ? parseInt(i.impressions || 0) : 0,
@@ -85,7 +107,7 @@ router.get('/adsets', auth, async (req, res) => {
       if (!data.data) return
       data.data.forEach(s => {
         const i = s.insights?.data?.[0]
-        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const { results, result_type } = getPrimaryResult(i?.actions)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: s.id, name: s.name, status: s.status, effective_status: s.effective_status,
@@ -94,8 +116,10 @@ router.get('/adsets', auth, async (req, res) => {
           optimization_goal: s.optimization_goal,
           client_id: client.id, client_name: client.name,
           meta_account_id: client.meta_account_id,
-          spend, clicks: parseInt(i?.clicks || 0), leads,
-          cpl: leads > 0 ? spend / leads : null,
+          spend, clicks: parseInt(i?.clicks || 0),
+          results, result_type,
+          cost_per_result: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
+          leads: results, cpl: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
           ctr: i ? parseFloat(i.ctr || 0) : null,
           cpc: i ? parseFloat(i.cpc || 0) : null,
           impressions: i ? parseInt(i.impressions || 0) : 0,
@@ -123,15 +147,17 @@ router.get('/ads', auth, async (req, res) => {
       if (!data.data) return
       data.data.forEach(ad => {
         const i = ad.insights?.data?.[0]
-        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const { results, result_type } = getPrimaryResult(i?.actions)
         const spend = parseFloat(i?.spend || 0)
         all.push({
           id: ad.id, name: ad.name, status: ad.status, effective_status: ad.effective_status,
           adset_id: ad.adset_id, adset_name: ad.adset?.name || '',
           campaign_id: ad.campaign_id, campaign_name: ad.campaign?.name || '',
           client_id: client.id, client_name: client.name,
-          spend, clicks: parseInt(i?.clicks || 0), leads,
-          cpl: leads > 0 ? spend / leads : null,
+          spend, clicks: parseInt(i?.clicks || 0),
+          results, result_type,
+          cost_per_result: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
+          leads: results, cpl: results > 0 ? parseFloat((spend / results).toFixed(2)) : null,
           ctr: i ? parseFloat(i.ctr || 0) : null,
           cpc: i ? parseFloat(i.cpc || 0) : null,
           impressions: i ? parseInt(i.impressions || 0) : 0,
@@ -317,3 +343,4 @@ router.get('/ads/:id/preview', auth, async (req, res) => {
 })
 
 module.exports = router
+
