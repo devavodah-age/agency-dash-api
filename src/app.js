@@ -18,6 +18,8 @@ app.use('/settings', require('./routes/settings'))
 app.use('/client-auth', require('./routes/client-auth'))
 app.use('/client-portal', require('./routes/client-portal'))
 app.use('/traffic', require('./routes/traffic'))
+app.use('/tickets', require('./routes/tickets'))
+app.use('/reports', require('./routes/reports'))
 
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'Avodah Agency Dash API' }))
 
