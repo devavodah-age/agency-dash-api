@@ -51,64 +51,96 @@ function fetchJson(url) {
   })
 }
 
+const ACTION_LABELS = {
+  'purchase': 'Compras realizadas',
+  'omni_purchase': 'Compras realizadas',
+  'lead': 'Contatos interessados gerados',
+  'offsite_conversion.fb_pixel_lead': 'Contatos interessados gerados',
+  'onsite_conversion.lead_grouped': 'Contatos interessados gerados',
+  'landing_page_view': 'Visitas à página',
+  'instagram_profile_visit': 'Visitas ao perfil do Instagram',
+  'onsite_conversion.view_content': 'Visualizações de conteúdo',
+  'follow': 'Novos seguidores',
+  'page_engagement': 'Engajamentos',
+  'post_engagement': 'Engajamentos no post',
+  'link_click': 'Cliques no link',
+  'video_view': 'Visualizações de vídeo',
+  'comment': 'Comentários',
+}
+
+const ACTION_PRIORITY = [
+  'purchase', 'omni_purchase',
+  'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
+  'landing_page_view',
+  'instagram_profile_visit', 'onsite_conversion.view_content',
+  'follow', 'link_click',
+  'page_engagement', 'post_engagement',
+  'video_view', 'comment',
+]
+
 // Helper: aggregate Meta campaign data
 function aggregateCampaigns(campaigns) {
-  let total_spend = 0
-  let total_leads = 0
-  let total_clicks = 0
-  let total_impressions = 0
-
+  let total_spend = 0, total_clicks = 0, total_impressions = 0
+  const allActionTotals = {}
   const campaignSummaries = []
 
   for (const campaign of campaigns) {
-    const insights = campaign.insights && campaign.insights.data && campaign.insights.data[0]
-      ? campaign.insights.data[0]
-      : null
-
-    const spend = insights ? parseFloat(insights.spend || 0) : 0
-    const clicks = insights ? parseInt(insights.clicks || 0, 10) : 0
-    const impressions = insights ? parseInt(insights.impressions || 0, 10) : 0
-
-    let leads = 0
-    if (insights && Array.isArray(insights.actions)) {
-      const leadAction = insights.actions.find(
-        (a) => a.action_type === 'lead' || a.action_type === 'offsite_conversion.fb_pixel_lead'
-      )
-      if (leadAction) leads = parseInt(leadAction.value || 0, 10)
-    }
+    const ins = campaign.insights?.data?.[0] || null
+    const spend = ins ? parseFloat(ins.spend || 0) : 0
+    const clicks = ins ? parseInt(ins.clicks || 0, 10) : 0
+    const impressions = ins ? parseInt(ins.impressions || 0, 10) : 0
 
     total_spend += spend
-    total_leads += leads
     total_clicks += clicks
     total_impressions += impressions
 
+    const campaignActions = {}
+    if (ins && Array.isArray(ins.actions)) {
+      for (const a of ins.actions) {
+        const v = parseInt(a.value || 0, 10)
+        campaignActions[a.action_type] = (campaignActions[a.action_type] || 0) + v
+        allActionTotals[a.action_type] = (allActionTotals[a.action_type] || 0) + v
+      }
+    }
+
     campaignSummaries.push({
-      id: campaign.id,
-      name: campaign.name,
+      id: campaign.id, name: campaign.name,
       status: campaign.effective_status || campaign.status,
-      spend,
-      clicks,
-      impressions,
-      leads
+      spend, clicks, impressions, actions: campaignActions
     })
   }
 
-  const avg_cpl = total_leads > 0 ? total_spend / total_leads : null
+  // Detect primary result type by priority
+  let primary_type = null
+  for (const t of ACTION_PRIORITY) {
+    if ((allActionTotals[t] || 0) > 0) { primary_type = t; break }
+  }
+
+  const total_results = primary_type ? (allActionTotals[primary_type] || 0) : 0
+  const result_label = primary_type ? (ACTION_LABELS[primary_type] || primary_type) : 'Resultados'
+  const cost_per_result = total_results > 0 ? total_spend / total_results : null
   const avg_ctr = total_impressions > 0 ? (total_clicks / total_impressions) * 100 : null
 
-  // Top 3 by spend
   const top_campaigns = campaignSummaries
     .sort((a, b) => b.spend - a.spend)
     .slice(0, 3)
+    .map(c => ({
+      id: c.id, name: c.name, status: c.status, spend: c.spend, clicks: c.clicks,
+      results: primary_type ? (c.actions[primary_type] || 0) : 0,
+      cost_per_result: primary_type && c.actions[primary_type] > 0
+        ? parseFloat((c.spend / c.actions[primary_type]).toFixed(2)) : null,
+    }))
 
   return {
     total_spend: parseFloat(total_spend.toFixed(2)),
-    total_leads,
-    total_clicks,
-    total_impressions,
-    avg_cpl: avg_cpl !== null ? parseFloat(avg_cpl.toFixed(2)) : null,
+    total_results, result_label,
+    cost_per_result: cost_per_result !== null ? parseFloat(cost_per_result.toFixed(2)) : null,
+    total_clicks, total_impressions,
     avg_ctr: avg_ctr !== null ? parseFloat(avg_ctr.toFixed(4)) : null,
-    top_campaigns
+    top_campaigns,
+    // legacy aliases so old reports still render
+    total_leads: total_results,
+    avg_cpl: cost_per_result !== null ? parseFloat(cost_per_result.toFixed(2)) : null,
   }
 }
 
@@ -212,12 +244,18 @@ router.post('/generate', auth, async (req, res) => {
       cliente: client.name,
       periodo: PERIOD_LABELS[period],
       total_investido: metrics.total_spend,
-      total_leads: metrics.total_leads,
+      tipo_resultado_principal: metrics.result_label,
+      total_resultados: metrics.total_results,
+      custo_por_resultado: metrics.cost_per_result,
       total_cliques: metrics.total_clicks,
       total_impressoes: metrics.total_impressions,
-      custo_por_lead: metrics.avg_cpl,
-      ctr_medio: metrics.avg_ctr,
-      top_campanhas: metrics.top_campaigns
+      taxa_de_cliques: metrics.avg_ctr ? `${(metrics.avg_ctr).toFixed(2)}%` : null,
+      top_campanhas: metrics.top_campaigns.map(c => ({
+        nome: c.name,
+        valor_investido: `R$ ${c.spend.toFixed(2).replace('.',',')}`,
+        resultados: c.results,
+        custo_por_resultado: c.cost_per_result ? `R$ ${c.cost_per_result.toFixed(2).replace('.',',')}` : '—',
+      }))
     }, null, 2)
 
     const claudeResponse = await anthropic.messages.create({
