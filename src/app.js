@@ -20,6 +20,10 @@ app.use('/client-portal', require('./routes/client-portal'))
 app.use('/traffic', require('./routes/traffic'))
 app.use('/tickets', require('./routes/tickets'))
 app.use('/reports', require('./routes/reports'))
+app.use('/agent', require('./routes/agent'))
+
+// Start autonomous agent scheduler
+require('./agent').startAgent()
 
 app.get('/health', (_, res) => res.json({ status: 'ok', app: 'Avodah Agency Dash API' }))
 
