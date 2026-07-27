@@ -5,24 +5,42 @@ const db   = require('../config/db')
 const GRAPH = 'https://graph.facebook.com/v19.0'
 const ALLOWED_PERIODS = ['today','last_7d','last_30d','this_month']
 
+// Higher priority types win when multiple actions exist
 const ACTION_PRIORITY = [
   'purchase', 'omni_purchase',
   'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped',
   'landing_page_view',
   'instagram_profile_visit', 'onsite_conversion.view_content',
   'follow', 'link_click',
-  'page_engagement', 'post_engagement',
-  'video_view', 'comment',
+  'omni_post_engagement', 'page_engagement', 'post_engagement',
+  'video_view', 'comment', 'like',
 ]
+
+// Types that are aggregated totals and should not be primary (they double-count)
+const SKIP_TYPES = new Set([
+  'omni_initiated_checkout', 'omni_add_to_cart',
+])
 
 function getPrimaryResult(actions, reach) {
   if (Array.isArray(actions) && actions.length) {
     const map = {}
-    for (const a of actions) map[a.action_type] = parseInt(a.value || 0, 10)
+    for (const a of actions) {
+      if (!SKIP_TYPES.has(a.action_type)) {
+        map[a.action_type] = parseInt(a.value || 0, 10)
+      }
+    }
+    // 1st: try known priority types
     for (const t of ACTION_PRIORITY) {
       if ((map[t] || 0) > 0) return { results: map[t], result_type: t }
     }
+    // 2nd: any action with value > 0 (catch-all for unknown types)
+    let best = null
+    for (const [type, val] of Object.entries(map)) {
+      if (val > 0 && (!best || val > best.val)) best = { type, val }
+    }
+    if (best) return { results: best.val, result_type: best.type }
   }
+  // 3rd: reach as fallback for awareness campaigns
   if (reach && parseInt(reach) > 0) return { results: parseInt(reach), result_type: 'reach' }
   return { results: 0, result_type: null }
 }
