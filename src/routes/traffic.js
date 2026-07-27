@@ -116,9 +116,9 @@ router.get('/ads', auth, async (req, res) => {
     const clients = await getClients(req.user.agency_id, client_id)
     const all = []
     await Promise.allSettled(clients.map(async client => {
-      const fields = 'id,name,status,effective_status,adset_id,adset{name},campaign_id,campaign{name},creative{id,name,title,body,thumbnail_url,object_type}'
+      const fields = 'id,name,status,effective_status,adset_id,adset{name},campaign_id,campaign{name}'
       const ins = 'spend,clicks,impressions,cpc,ctr,actions'
-      const url = `${GRAPH}/act_${client.meta_account_id}/ads?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=200&access_token=${token}`
+      const url = `${GRAPH}/act_${client.meta_account_id}/ads?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=100&access_token=${token}`
       const r = await fetch(url); const data = await r.json()
       if (!data.data) return
       data.data.forEach(ad => {
@@ -129,8 +129,6 @@ router.get('/ads', auth, async (req, res) => {
           id: ad.id, name: ad.name, status: ad.status, effective_status: ad.effective_status,
           adset_id: ad.adset_id, adset_name: ad.adset?.name || '',
           campaign_id: ad.campaign_id, campaign_name: ad.campaign?.name || '',
-          thumbnail_url: ad.creative?.thumbnail_url || null,
-          creative_type: ad.creative?.object_type || null,
           client_id: client.id, client_name: client.name,
           spend, clicks: parseInt(i?.clicks || 0), leads,
           cpl: leads > 0 ? spend / leads : null,
