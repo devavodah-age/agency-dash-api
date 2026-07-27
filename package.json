@@ -16,7 +16,9 @@
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.0",
     "pg": "^8.11.0",
-    "@anthropic-ai/sdk": "^0.24.0"
+    "@anthropic-ai/sdk": "^0.24.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.7"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
