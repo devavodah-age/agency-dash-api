@@ -6,20 +6,29 @@ const GRAPH = 'https://graph.facebook.com/v19.0'
 const ALLOWED_PERIODS = ['today','last_7d','last_30d','this_month']
 
 async function getAgencyToken(agency_id) {
-  const { rows } = await db.query(
-    'SELECT meta_access_token FROM agencies WHERE id=$1', [agency_id]
-  )
+  const { rows } = await db.query('SELECT meta_access_token FROM agencies WHERE id=$1', [agency_id])
   return rows[0]?.meta_access_token || null
 }
 
-// GET /traffic/clients — lista clientes com meta_account_id
+async function getClients(agency_id, client_id) {
+  if (client_id) {
+    const { rows } = await db.query(
+      "SELECT id, name, meta_account_id FROM clients WHERE id=$1 AND agency_id=$2", [client_id, agency_id]
+    )
+    return rows
+  }
+  const { rows } = await db.query(
+    "SELECT id, name, meta_account_id FROM clients WHERE agency_id=$1 AND meta_account_id IS NOT NULL AND meta_account_id<>'' ORDER BY name",
+    [agency_id]
+  )
+  return rows
+}
+
+// GET /traffic/clients
 router.get('/clients', auth, async (req, res) => {
   try {
-    const { rows } = await db.query(
-      "SELECT id, name, meta_account_id FROM clients WHERE agency_id=$1 AND meta_account_id IS NOT NULL AND meta_account_id<>'' ORDER BY name",
-      [req.user.agency_id]
-    )
-    res.json(rows)
+    const clients = await getClients(req.user.agency_id)
+    res.json(clients)
   } catch { res.status(500).json({ error: 'Erro interno' }) }
 })
 
@@ -30,196 +39,250 @@ router.get('/campaigns', auth, async (req, res) => {
   try {
     const token = await getAgencyToken(req.user.agency_id)
     if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
-
-    const { rows: clients } = client_id
-      ? await db.query("SELECT id, name, meta_account_id FROM clients WHERE id=$1 AND agency_id=$2", [client_id, req.user.agency_id])
-      : await db.query("SELECT id, name, meta_account_id FROM clients WHERE agency_id=$1 AND meta_account_id IS NOT NULL AND meta_account_id<>''", [req.user.agency_id])
-
-    const allCampaigns = []
-
+    const clients = await getClients(req.user.agency_id, client_id)
+    const all = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,daily_budget,lifetime_budget,objective'
-      const insFields = 'spend,clicks,impressions,cpc,ctr,actions'
-      const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${insFields}}&limit=50&access_token=${token}`
-      const r = await fetch(url)
-      const data = await r.json()
+      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=50&access_token=${token}`
+      const r = await fetch(url); const data = await r.json()
       if (!data.data) return
-
       data.data.forEach(c => {
-        const ins = c.insights?.data?.[0]
-        const leads = ins?.actions?.find(a => a.action_type === 'lead')?.value || 0
-        const spend = parseFloat(ins?.spend || 0)
-        const clicks = parseInt(ins?.clicks || 0)
-        const cpl = leads > 0 ? spend / parseInt(leads) : null
-        allCampaigns.push({
-          id: c.id,
-          name: c.name,
-          status: c.status,
-          effective_status: c.effective_status,
+        const i = c.insights?.data?.[0]
+        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const spend = parseFloat(i?.spend || 0)
+        all.push({
+          id: c.id, name: c.name, status: c.status, effective_status: c.effective_status,
           daily_budget: c.daily_budget ? parseInt(c.daily_budget) / 100 : null,
-          objective: c.objective,
-          client_id: client.id,
-          client_name: client.name,
+          objective: c.objective, client_id: client.id, client_name: client.name,
           meta_account_id: client.meta_account_id,
-          spend, clicks, leads: parseInt(leads), cpl,
-          ctr: ins ? parseFloat(ins.ctr || 0) : null,
-          cpc: ins ? parseFloat(ins.cpc || 0) : null,
-          impressions: ins ? parseInt(ins.impressions || 0) : 0,
+          spend, clicks: parseInt(i?.clicks || 0), leads,
+          cpl: leads > 0 ? spend / leads : null,
+          ctr: i ? parseFloat(i.ctr || 0) : null,
+          cpc: i ? parseFloat(i.cpc || 0) : null,
+          impressions: i ? parseInt(i.impressions || 0) : 0,
         })
       })
     }))
+    res.json(all.sort((a, b) => b.spend - a.spend))
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Erro ao buscar campanhas' }) }
+})
 
-    res.json(allCampaigns.sort((a, b) => b.spend - a.spend))
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Erro ao buscar campanhas' })
-  }
+// GET /traffic/adsets?client_id=X&period=last_30d
+router.get('/adsets', auth, async (req, res) => {
+  const { client_id, period = 'last_30d' } = req.query
+  const date_preset = ALLOWED_PERIODS.includes(period) ? period : 'last_30d'
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const clients = await getClients(req.user.agency_id, client_id)
+    const all = []
+    await Promise.allSettled(clients.map(async client => {
+      const fields = 'id,name,status,effective_status,daily_budget,lifetime_budget,campaign_id,campaign{name},optimization_goal,billing_event'
+      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const url = `${GRAPH}/act_${client.meta_account_id}/adsets?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=100&access_token=${token}`
+      const r = await fetch(url); const data = await r.json()
+      if (!data.data) return
+      data.data.forEach(s => {
+        const i = s.insights?.data?.[0]
+        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const spend = parseFloat(i?.spend || 0)
+        all.push({
+          id: s.id, name: s.name, status: s.status, effective_status: s.effective_status,
+          daily_budget: s.daily_budget ? parseInt(s.daily_budget) / 100 : null,
+          campaign_id: s.campaign_id, campaign_name: s.campaign?.name || '',
+          optimization_goal: s.optimization_goal,
+          client_id: client.id, client_name: client.name,
+          meta_account_id: client.meta_account_id,
+          spend, clicks: parseInt(i?.clicks || 0), leads,
+          cpl: leads > 0 ? spend / leads : null,
+          ctr: i ? parseFloat(i.ctr || 0) : null,
+          cpc: i ? parseFloat(i.cpc || 0) : null,
+          impressions: i ? parseInt(i.impressions || 0) : 0,
+        })
+      })
+    }))
+    res.json(all.sort((a, b) => b.spend - a.spend))
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Erro ao buscar conjuntos' }) }
+})
+
+// GET /traffic/ads?client_id=X&period=last_30d
+router.get('/ads', auth, async (req, res) => {
+  const { client_id, period = 'last_30d' } = req.query
+  const date_preset = ALLOWED_PERIODS.includes(period) ? period : 'last_30d'
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const clients = await getClients(req.user.agency_id, client_id)
+    const all = []
+    await Promise.allSettled(clients.map(async client => {
+      const fields = 'id,name,status,effective_status,adset_id,adset{name},campaign_id,campaign{name},creative{id,name,title,body,thumbnail_url,object_type}'
+      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const url = `${GRAPH}/act_${client.meta_account_id}/ads?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=200&access_token=${token}`
+      const r = await fetch(url); const data = await r.json()
+      if (!data.data) return
+      data.data.forEach(ad => {
+        const i = ad.insights?.data?.[0]
+        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const spend = parseFloat(i?.spend || 0)
+        all.push({
+          id: ad.id, name: ad.name, status: ad.status, effective_status: ad.effective_status,
+          adset_id: ad.adset_id, adset_name: ad.adset?.name || '',
+          campaign_id: ad.campaign_id, campaign_name: ad.campaign?.name || '',
+          thumbnail_url: ad.creative?.thumbnail_url || null,
+          creative_type: ad.creative?.object_type || null,
+          client_id: client.id, client_name: client.name,
+          spend, clicks: parseInt(i?.clicks || 0), leads,
+          cpl: leads > 0 ? spend / leads : null,
+          ctr: i ? parseFloat(i.ctr || 0) : null,
+          cpc: i ? parseFloat(i.cpc || 0) : null,
+          impressions: i ? parseInt(i.impressions || 0) : 0,
+        })
+      })
+    }))
+    res.json(all.sort((a, b) => b.spend - a.spend))
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Erro ao buscar anúncios' }) }
 })
 
 // POST /traffic/campaigns/:id/status
-// body: { status: 'PAUSED'|'ACTIVE', account_id: '...' }
 router.post('/campaigns/:id/status', auth, async (req, res) => {
-  const { status, account_id } = req.body
+  const { status } = req.body
   if (!['PAUSED','ACTIVE'].includes(status)) return res.status(400).json({ error: 'Status inválido' })
   try {
     const token = await getAgencyToken(req.user.agency_id)
     if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
-
     const r = await fetch(`${GRAPH}/${req.params.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `status=${status}&access_token=${token}`
     })
     const data = await r.json()
     if (data.error) return res.status(400).json({ error: data.error.message })
     res.json({ ok: true, status })
-  } catch (err) {
-    res.status(500).json({ error: 'Erro ao atualizar status' })
-  }
+  } catch { res.status(500).json({ error: 'Erro ao atualizar status' }) }
+})
+
+// POST /traffic/adsets/:id/status
+router.post('/adsets/:id/status', auth, async (req, res) => {
+  const { status } = req.body
+  if (!['PAUSED','ACTIVE'].includes(status)) return res.status(400).json({ error: 'Status inválido' })
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const r = await fetch(`${GRAPH}/${req.params.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `status=${status}&access_token=${token}`
+    })
+    const data = await r.json()
+    if (data.error) return res.status(400).json({ error: data.error.message })
+    res.json({ ok: true, status })
+  } catch { res.status(500).json({ error: 'Erro ao atualizar status' }) }
+})
+
+// POST /traffic/ads/:id/status
+router.post('/ads/:id/status', auth, async (req, res) => {
+  const { status } = req.body
+  if (!['PAUSED','ACTIVE'].includes(status)) return res.status(400).json({ error: 'Status inválido' })
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const r = await fetch(`${GRAPH}/${req.params.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `status=${status}&access_token=${token}`
+    })
+    const data = await r.json()
+    if (data.error) return res.status(400).json({ error: data.error.message })
+    res.json({ ok: true, status })
+  } catch { res.status(500).json({ error: 'Erro ao atualizar status' }) }
 })
 
 // POST /traffic/campaigns/:id/budget
-// body: { daily_budget: 50.00 (BRL), account_id: '...' }
 router.post('/campaigns/:id/budget', auth, async (req, res) => {
   const { daily_budget } = req.body
   if (!daily_budget || isNaN(daily_budget)) return res.status(400).json({ error: 'Orçamento inválido' })
   try {
     const token = await getAgencyToken(req.user.agency_id)
     if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
-
     const budgetCents = Math.round(parseFloat(daily_budget) * 100)
     const r = await fetch(`${GRAPH}/${req.params.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: `daily_budget=${budgetCents}&access_token=${token}`
     })
     const data = await r.json()
     if (data.error) return res.status(400).json({ error: data.error.message })
     res.json({ ok: true, daily_budget: parseFloat(daily_budget) })
-  } catch {
-    res.status(500).json({ error: 'Erro ao atualizar orçamento' })
-  }
+  } catch { res.status(500).json({ error: 'Erro ao atualizar orçamento' }) }
 })
 
-// POST /traffic/optimize
-// body: { client_id (optional), period }
-// Chama Claude para analisar campanhas e retornar recomendações
-router.post('/optimize', auth, async (req, res) => {
-  const { client_id, period = 'last_30d' } = req.body
-  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
-  if (!ANTHROPIC_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY não configurado no servidor' })
-
+// POST /traffic/adsets/:id/budget
+router.post('/adsets/:id/budget', auth, async (req, res) => {
+  const { daily_budget } = req.body
+  if (!daily_budget || isNaN(daily_budget)) return res.status(400).json({ error: 'Orçamento inválido' })
   try {
     const token = await getAgencyToken(req.user.agency_id)
     if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
+    const budgetCents = Math.round(parseFloat(daily_budget) * 100)
+    const r = await fetch(`${GRAPH}/${req.params.id}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `daily_budget=${budgetCents}&access_token=${token}`
+    })
+    const data = await r.json()
+    if (data.error) return res.status(400).json({ error: data.error.message })
+    res.json({ ok: true, daily_budget: parseFloat(daily_budget) })
+  } catch { res.status(500).json({ error: 'Erro ao atualizar orçamento' }) }
+})
 
+// POST /traffic/optimize
+router.post('/optimize', auth, async (req, res) => {
+  const { client_id, period = 'last_30d' } = req.body
+  const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY
+  if (!ANTHROPIC_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY não configurado' })
+  try {
+    const token = await getAgencyToken(req.user.agency_id)
+    if (!token) return res.status(400).json({ error: 'Token Meta não configurado' })
     const date_preset = ALLOWED_PERIODS.includes(period) ? period : 'last_30d'
-    const { rows: clients } = client_id
-      ? await db.query("SELECT id, name, meta_account_id FROM clients WHERE id=$1 AND agency_id=$2", [client_id, req.user.agency_id])
-      : await db.query("SELECT id, name, meta_account_id FROM clients WHERE agency_id=$1 AND meta_account_id IS NOT NULL AND meta_account_id<>''", [req.user.agency_id])
-
+    const clients = await getClients(req.user.agency_id, client_id)
     const campaigns = []
     await Promise.allSettled(clients.map(async client => {
       const fields = 'id,name,status,effective_status,daily_budget,objective'
-      const insFields = 'spend,clicks,impressions,cpc,ctr,actions,cost_per_action_type'
-      const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${insFields}}&limit=50&access_token=${token}`
-      const r = await fetch(url)
-      const data = await r.json()
+      const ins = 'spend,clicks,impressions,cpc,ctr,actions'
+      const url = `${GRAPH}/act_${client.meta_account_id}/campaigns?fields=${fields},insights.date_preset(${date_preset}){${ins}}&limit=50&access_token=${token}`
+      const r = await fetch(url); const data = await r.json()
       if (!data.data) return
       data.data.forEach(c => {
-        const ins = c.insights?.data?.[0]
-        const leads = parseInt(ins?.actions?.find(a => a.action_type === 'lead')?.value || 0)
-        const spend = parseFloat(ins?.spend || 0)
+        const i = c.insights?.data?.[0]
+        const leads = parseInt(i?.actions?.find(a => a.action_type === 'lead')?.value || 0)
+        const spend = parseFloat(i?.spend || 0)
         campaigns.push({
-          id: c.id, name: c.name,
-          cliente: client.name,
+          id: c.id, name: c.name, cliente: client.name,
           status: c.effective_status,
           orcamento_diario: c.daily_budget ? parseInt(c.daily_budget) / 100 : null,
-          gasto: spend, cliques: parseInt(ins?.clicks || 0),
-          leads, cpl: leads > 0 ? (spend / leads).toFixed(2) : null,
-          ctr: ins ? parseFloat(ins.ctr || 0).toFixed(2) : null,
-          cpc: ins ? parseFloat(ins.cpc || 0).toFixed(2) : null,
-          impressoes: parseInt(ins?.impressions || 0),
+          gasto: spend, cliques: parseInt(i?.clicks || 0), leads,
+          cpl: leads > 0 ? (spend / leads).toFixed(2) : null,
+          ctr: i ? parseFloat(i.ctr || 0).toFixed(2) : null,
+          cpc: i ? parseFloat(i.cpc || 0).toFixed(2) : null,
         })
       })
     }))
+    if (!campaigns.length) return res.status(400).json({ error: 'Nenhuma campanha para analisar' })
+    const prompt = `Você é especialista em tráfego pago Meta Ads para agência de marketing digital brasileira.
 
-    if (campaigns.length === 0) return res.status(400).json({ error: 'Nenhuma campanha encontrada para analisar' })
-
-    const prompt = `Você é um especialista em tráfego pago no Meta Ads (Facebook/Instagram) para uma agência de marketing digital brasileira.
-
-Analise as seguintes campanhas e retorne recomendações de otimização em JSON.
-
-Dados das campanhas (período: ${date_preset.replace('_',' ')}):
+Analise estas campanhas e retorne recomendações em JSON (sem markdown):
 ${JSON.stringify(campaigns, null, 2)}
 
-Retorne APENAS um objeto JSON válido (sem markdown, sem explicações) com este formato exato:
-{
-  "resumo": "string com análise geral em 2-3 frases",
-  "recomendacoes": [
-    {
-      "campaign_id": "string",
-      "campaign_name": "string",
-      "cliente": "string",
-      "acao": "pausar|escalar|reduzir|manter",
-      "percentual": null ou número (ex: 20 para +20% no orçamento),
-      "motivo": "string explicando o porquê em 1 frase objetiva",
-      "prioridade": "alta|media|baixa"
-    }
-  ]
-}
+Formato exato:
+{"resumo":"string 2-3 frases","recomendacoes":[{"campaign_id":"string","campaign_name":"string","cliente":"string","acao":"pausar|escalar|reduzir|manter","percentual":null,"motivo":"string 1 frase","prioridade":"alta|media|baixa"}]}
 
-Critérios:
-- Pausar: CPL > R$80, CTR < 0.5%, gasto > R$20 sem leads, ou status já PAUSED e performance ruim
-- Escalar: CPL < R$30, CTR > 1.5%, leads consistentes — sugira 20-50% de aumento
-- Reduzir orçamento: CPL entre R$50-80, poucos leads — sugira 20-30% de redução
-- Manter: performance dentro da média
-- Campanhas sem gasto ou pausadas sem dados: sugira manter ou revisar criativos`
+Critérios: pausar se CPL>R$80 ou CTR<0.5% com gasto>R$20 sem leads; escalar se CPL<R$30 e CTR>1.5%; reduzir se CPL R$50-80; manter se performance OK.`
 
     const aiResp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
-        messages: [{ role: 'user', content: prompt }]
-      })
+      headers: { 'x-api-key': ANTHROPIC_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 2048, messages: [{ role: 'user', content: prompt }] })
     })
-
     const aiData = await aiResp.json()
     if (aiData.error) return res.status(500).json({ error: aiData.error.message })
-
-    const text = aiData.content[0].text.trim()
-    const parsed = JSON.parse(text)
-    res.json(parsed)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({ error: 'Erro ao gerar otimização: ' + err.message })
-  }
+    res.json(JSON.parse(aiData.content[0].text.trim()))
+  } catch (err) { console.error(err); res.status(500).json({ error: 'Erro ao gerar otimização: ' + err.message }) }
 })
 
 module.exports = router
