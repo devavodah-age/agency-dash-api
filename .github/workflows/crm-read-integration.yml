@@ -1,0 +1,14 @@
+name: CRM read integration
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check src/app.js && node --check src/crmIntegration.js && node --check src/routes/crm-integration.js && node --check scripts/create-crm-link.cjs
+      - run: npm run test:crm
